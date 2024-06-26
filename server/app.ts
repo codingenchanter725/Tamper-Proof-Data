@@ -4,44 +4,45 @@ import crypto from 'crypto';
 
 const PORT = 8080;
 const app = express();
-let database = { data: "Hello World", hash: "" };
-let dataHistory = [{ data: database.data, timestamp: new Date(), hash: database.hash }];
 
-// Function to compute hash of the data
-const computeHash = (data: string) => {
-  return crypto.createHash('sha256').update(data).digest('hex');
+// Generating RSA key pair for simplicity, normally you'd store these securely
+const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
+
+let database = { data: "Hello World", signature: "" };
+
+// Sign the initial data
+const signData = (data: string) => {
+  const signer = crypto.createSign('sha256');
+  signer.update(data);
+  signer.end();
+  return signer.sign(privateKey, 'base64');
 };
 
-// Initializing the hash
-database.hash = computeHash(database.data);
+// Initializing the signature
+database.signature = signData(database.data);
 
 app.use(cors());
 app.use(express.json());
 
-// Routes
 app.get("/", (req, res) => {
-  res.json(database);
+  res.json({ data: database.data, signature: database.signature });
 });
 
 app.post("/", (req, res) => {
   database.data = req.body.data;
-  database.hash = computeHash(database.data); // Update hash on data change
-  dataHistory.push({ data: database.data, timestamp: new Date(), hash: database.hash }); // Store history
+  database.signature = signData(database.data); // Update signature on data change
   res.sendStatus(200);
 });
 
 app.post("/verify", (req, res) => {
-  // Compare the computed hash with the stored hash
-  const currentHash = computeHash(req.body.data);
-  const isValid = (currentHash === database.hash);
+  // Verify the signature
+  const verifier = crypto.createVerify('sha256');
+  verifier.update(req.body.data);
+  verifier.end();
+  const isValid = verifier.verify(publicKey, req.body.signature, 'base64');
   res.json({ isValid });
-});
-
-app.get("/recover", (req, res) => {
-  const lastGoodState = dataHistory[dataHistory.length - 2]; // Assuming the last entry might be corrupted
-  database.data = lastGoodState.data;
-  database.hash = lastGoodState.hash;
-  res.json({ data: database.data });
 });
 
 app.listen(PORT, () => {
